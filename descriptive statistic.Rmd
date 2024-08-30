@@ -1,0 +1,421 @@
+---
+title: "descriptive statistics"
+author: "QGH"
+date: "2024-08-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+# library
+
+library(tools)
+library(dplyr)
+library(tmap)
+library(sf)
+library(tidyr)
+library(ggplot2)
+library(zoo)
+library(tidysynth)
+
+# Copy the construction of treated data
+
+df_did <- read.csv("df_did.csv")
+
+df_long <- read.csv("df_long.csv")
+
+df_did$DISTRICT <- gsub("Chitawan", "Chitwan", df_did$DISTRICT)
+
+df_did$DISTRICT <- gsub("Kabhrepalanchok", "Kavre", df_did$DISTRICT)
+
+df_did$DISTRICT <- gsub("Makawanpur", "Makwanpur", df_did$DISTRICT)
+
+df_did$DISTRICT <- gsub("Terhathum", "Tehrathum", df_did$DISTRICT)
+
+merged_df <- merge(df_did, df_long, by.x = c("year", "DISTRICT"), by.y=c("year", "DISTRICT_NAME"))
+
+n_distinct(merged_df$DISTRICT)
+
+df_treated <- merged_df %>%
+  mutate(ever_treated = ifelse(DISTRICT %in% treated_units, 1, 0))
+
+treated_units <- c("Dadeldhura","Kailali","Bardiya","Banke","Dang","Rupandehi","Nawalparasi","Parsa", "Bara","Saptari","Siraha","Sarlahi","Mahottari","Dhanusa","Udayapur","Sunsari","Jhapa","Morang","Bajhang", "Bajura","Kalikot","Jajarkot","Salyan","Baglung","Gulmi","Parbat","Syangja","Kaski","Dolakha","Ramechhap","Sankhuwasabha")
+
+# df_treated <- df_treated[!(df_treated$DISTRICT%in% c("Humla", "Mugu","Dolpa", "Manang", "Mustang", "Rasuwa", "Kalikot", "Solukhumbu", 
+    #                       "Bajhang", "Darchula", "Sindhupalchok", 
+   #                        "Sankhuwasabha", "Taplejung","Dolakha")), ]
+
+# Adding treatment variable
+
+df_treated <- df_treated %>%
+  mutate(treatment = ifelse(year >= 2007 & DISTRICT %in% treated_units, 1, 0))
+
+summary(df_treated$production)
+
+##
+## 
+##
+
+# The orginal number of district in data
+
+n_distinct(df_treated$DISTRICT) # 75 districts
+
+df_treated %>%
+  filter(ever_treated == 1) %>%
+  summarise(count = n_distinct(DISTRICT)) # 31 districts in treatment group (Among these some districts faced a direct damage and some direct faced an indriect damage)
+
+df_treated %>%
+  filter(ever_treated == 0) %>%
+  summarise(count = n_distinct(DISTRICT)) # 44 districts in control group
+
+# The number of districts in the did data
+
+n_distinct(df_model$DISTRICT) # 57 districts
+
+df_model %>%
+  filter(ever_treated == 1) %>%
+  summarise(count = n_distinct(DISTRICT)) # 28 districts in treatment group
+
+df_model %>%
+  filter(ever_treated == 0) %>%
+  summarise(count = n_distinct(DISTRICT)) # 30 in control groups
+
+```
+
+
+```{r topography map, include=FALSE}
+
+# Classify areas into different area
+
+mountainous_districts <- c("Manang", "Mustang", "Dolpa", "Humla", "Mugu", 
+                           "Jumla", "Rasuwa", "Kalikot", "Solukhumbu", 
+                           "Bajhang", "Darchula", "Sindhupalchok", 
+                           "Sankhuwasabha", "Taplejung","Dolakha")
+
+tarai_districts <- c("Kanchanpur","Kailali","Bardiya","Banke","Dang","Kapilbastu","Rupandehi","Nawalparasi","Chitwan","Parsa","Bara","Rautahat","Sarlahi","Mahottari","Dhanusa","Siraha","Saptari","Sunsari","Morang","Jhapa")
+
+df_treated$Region <- ifelse(df_treated$DISTRICT %in% mountainous_districts, 
+                            "mountain", 
+                            ifelse(df_treated$DISTRICT %in% tarai_districts, 
+                                   "tarai", 
+                                   "hill"))
+
+# Shapefile
+
+districts_shp <- st_read("Data/Shapefile/local_unit.shp")
+
+# Mutate Shapefile
+
+merged_shp <- districts_shp %>%
+  mutate(DISTRICT = if_else(DISTRICT %in% c("NAWALPARASI_E", "NAWALPARASI_W"), "Nawalparasi", DISTRICT)) %>%
+  group_by(DISTRICT) %>%
+  summarise()
+
+merged_shp <- merged_shp %>%
+  mutate(DISTRICT = if_else(DISTRICT %in% c("RUKUM_E", "RUKUM_W"), "Rukum", DISTRICT)) %>%
+  group_by(DISTRICT) %>%
+  summarise()
+
+merged_shp <- merged_shp %>%
+  mutate(DISTRICT = tools::toTitleCase(tolower(DISTRICT)))
+
+merged_shp <- merged_shp %>%
+  mutate(DISTRICT = gsub("Chitawan", "Chitwan", DISTRICT))
+
+merged_shp <- merged_shp %>%
+  mutate(DISTRICT = gsub("Makawanpur", "Makwanpur", DISTRICT))
+
+merged_shp <- merged_shp %>%
+  mutate(DISTRICT = gsub("Kabhrepalanchok", "Kavre", DISTRICT))
+
+merged_shp <- merged_shp %>%
+  mutate(DISTRICT = gsub("Terhathum", "Tehrathum", DISTRICT))
+
+merged_shp <- merged_shp %>%
+  mutate(DISTRICT = gsub("Dhanusha", "Dhanusa", DISTRICT))
+
+# Treated
+
+df_treated <- df_treated %>%
+  mutate(con_treat = case_when(
+    treatment == 1 & DISTRICT == "Darchula" ~ 780,
+    treatment == 1 & DISTRICT == "Baitadi" ~ 1750,
+    treatment == 1 & DISTRICT == "Dadeldhura" ~ NA_real_,
+    treatment == 1 & DISTRICT == "Achham" ~ 247,
+    treatment == 1 & DISTRICT == "Kailali" ~ 41430,
+    treatment == 1 & DISTRICT == "Surkhet" ~ 378,
+    treatment == 1 & DISTRICT == "Bardiya" ~ 28970,
+    treatment == 1 & DISTRICT == "Salyan" ~ NA_real_,
+    treatment == 1 & DISTRICT == "Banke" ~ 44974,
+    treatment == 1 & DISTRICT == "Dang" ~ 900,
+    treatment == 1 & DISTRICT == "Pyuthan" ~ 165,
+    treatment == 1 & DISTRICT == "Gulmi" ~ 258,
+    treatment == 1 & DISTRICT == "Arghakhanchi" ~ 2971,
+    treatment == 1 & DISTRICT == "Rupandehi" ~ 8141,
+    treatment == 1 & DISTRICT == "Nawalparasi" ~ 7200,
+    treatment == 1 & DISTRICT == "Parsa" ~ 12268,
+    treatment == 1 & DISTRICT == "Bara" ~ 9873,
+    treatment == 1 & DISTRICT == "Rautahat" ~ 35795,
+    treatment == 1 & DISTRICT == "Sarlahi" ~ 51360,
+    treatment == 1 & DISTRICT == "Mahottari" ~ 59618,
+    treatment == 1 & DISTRICT == "Sindhuli" ~ NA_real_,
+    treatment == 1 & DISTRICT == "Dhanusa" ~ 126023,
+    treatment == 1 & DISTRICT == "Udayapur" ~ 1818,
+    treatment == 1 & DISTRICT == "Saptari" ~ 68388,
+    treatment == 1 & DISTRICT == "Siraha" ~ 57037,
+    treatment == 1 & DISTRICT == "Sankhuwasabha" ~ 170,
+    treatment == 1 & DISTRICT == "Khotang" ~ 144,
+    treatment == 1 & DISTRICT == "Bhojpur" ~ NA_real_,
+    treatment == 1 & DISTRICT == "Panchthar" ~ 1175,
+    treatment == 1 & DISTRICT == "Jhapa" ~ 1127,
+    treatment == 1 & DISTRICT == "Morang" ~ 4409,
+    treatment == 1 & DISTRICT == "Sunsari" ~ 11169,
+    treatment == 1 & DISTRICT == "Dolakha" ~ 42,
+    treatment == 1 & DISTRICT == "Ramechhap" ~ 250,
+    treatment == 1 & DISTRICT == "Syangja" ~ 162,
+    treatment == 1 & DISTRICT == "Kaski" ~ 30,
+    treatment == 1 & DISTRICT == "Dhading" ~ 481,
+    treatment == 1 & DISTRICT == "Baglung" ~ 440,
+    treatment == 1 & DISTRICT == "Parbat" ~ 364,
+    treatment == 1 & DISTRICT == "Jajarkot" ~ 42,
+    treatment == 1 & DISTRICT == "Rukum" ~ NA_real_,
+    treatment == 1 & DISTRICT == "Bajura" ~ 35,
+    treatment == 1 & DISTRICT == "Bajhang" ~ NA_real_,
+    TRUE ~ 0 # Default value if none of the conditions match
+  ))
+
+```
+
+
+```{r topography map, include=FALSE}
+
+df_2007 <- df_treated %>%filter(year == 2006)
+
+pop <- read.csv("Data/pop.csv")
+
+pop <- subset(pop, Category == "Population")
+
+map_shp <-merge(merged_shp, df_2007, by = "DISTRICT")
+
+# Koshi River
+
+koshi_shp <- st_read("Data/basin_koshi/data/basin.shp")
+
+# Change two CRS
+
+map_shp <- st_transform(map_shp, crs = 4326)
+
+st_crs(map_shp)
+
+# Mapping
+
+tmap_options(check.and.fix = TRUE)
+
+tm_shape(map_shp) + 
+  tm_polygons("Region", 
+              palette = c("mountain" = "darkslategray3", 
+                          "tarai" = "darkseagreen2", 
+                          "hill" = "beige"),
+              legend.show = TRUE) + 
+  tm_layout(frame = FALSE, 
+            title = "", 
+            legend.outside = TRUE) +
+  tm_compass(type = "4star",  
+             position = c("right", "top"),  
+             size = 2)
+
+# Cut the overlapped area
+
+if (st_crs(map_shp) != st_crs(koshi_shp)) {
+  koshi_shp <- st_transform(koshi_shp, crs = st_crs(map_shp))
+}
+
+koshi_shp_valid <- st_make_valid(koshi_shp)
+
+map_shp_valid <- st_make_valid(map_shp)
+
+koshi_shp_clipped <- st_intersection(koshi_shp_valid, map_shp_valid)
+
+# Map again
+
+tm_shape(map_shp_valid) + 
+  tm_polygons("Region", 
+              palette = c("mountain" = "darkslategray3", 
+                          "tarai" = "darkseagreen2", 
+                          "hill" = "beige"),
+              legend.show = TRUE) +
+  tm_shape(koshi_shp_clipped) + 
+  tm_fill(col = "wheat3",  
+          alpha = 0.7) +     
+  tm_borders(col = "wheat3", lwd = 0) +  
+  tm_layout(frame = FALSE, 
+            title = "", 
+            legend.position = c("left", "bottom"), 
+            legend.bg.color = "white",             
+            legend.bg.alpha = 0.8,                 
+            legend.title.size = 1.2,               
+            legend.text.size = 0.8,                
+            legend.outside = FALSE) +  tm_scale_bar(position = c("right", "top")) +
+  tm_compass(type = "4star",  
+             position = c("right", "top"),  
+             size = 4) 
+
+# From the map it seems that koshi river baisn covers around 20 districts in nepal
+
+# Marked Koshi River Dam
+
+ tm_shape(koshi_shp_clipped) + 
+  tm_fill(col = "wheat3", 
+          alpha = 0.7) +     
+  tm_borders(lwd = 0)
+
+```
+
+
+```{r topography map, include=FALSE}
+
+map_shp_valid$ever_treated <- as.factor(map_shp_valid$ever_treated)
+
+map_shp_valid <- map_shp_valid %>%
+  mutate(`Ever Treated?` = case_when(
+    Region == "mountain" ~ "Mountain",
+    ever_treated == "1" ~ "Treated",
+    ever_treated == "0" ~ "Control",
+    TRUE ~ as.character(ever_treated)  # Use ever_treated if Region is not "mountain"
+  ))
+
+tm_shape(map_shp_valid) + 
+  tm_polygons("Ever Treated?",
+              palette = c("Treated" = "lightskyblue3",  # Color for value 1
+                          "Control" = "azure",
+                          "mountain" = "coral"),       # Color for value 0
+              legend.show = TRUE) +
+  tm_shape(koshi_shp_clipped) + 
+  tm_fill(col = "wheat3",  # Fill color for Koshi River Basin
+          alpha = 0.5) +    # Transparency level
+  tm_borders(col = "wheat3", lwd = 0) +  # Remove borders
+  tm_layout(frame = FALSE, 
+            title = "", 
+            legend.position = c("left", "bottom"), 
+            legend.bg.color = "white",             
+            legend.bg.alpha = 0.8,                 
+            legend.title.size = 1.2,               
+            legend.text.size = 0.8,                
+            legend.outside = FALSE) +    tm_scale_bar(position = c("right", "top")) +
+  tm_compass(type = "4star",  
+             position = c("right", "top"),  
+             size = 4) 
+
+```
+
+```{r continous, include=FALSE}
+
+# Time series for wind speed
+
+df_avg_wind <- df_model %>%
+  group_by(year) %>%
+  summarise(avg_wind_speed = mean(wind, na.rm = TRUE))
+
+
+ggplot(df_avg_wind, aes(x = year, y = avg_wind_speed)) +
+  geom_line(color = "darkslategray3", size = 1) +
+  geom_point(color = "coral", size = 2) +
+  geom_vline(xintercept = 2007, linetype = "dashed", color = "lightskyblue3", size = 1) +  # Vertical line at 2007
+  labs(x = "Year", y = "Annual Average Wind Speed") +  # No title added
+  theme_minimal()
+
+# Time series for temperature
+
+df_avg_wind <- df_model %>%
+  group_by(year) %>%
+  summarise(avg_tem = max(tem, na.rm = TRUE))
+
+ggplot(df_avg_wind, aes(x = year, y = avg_tem)) +
+  geom_line(color = "darkslategray3", size = 1) +
+  geom_point(color = "coral", size = 2) +
+  geom_vline(xintercept = 2007, linetype = "dashed", color = "lightskyblue3", size = 1) +  # Vertical line at 2007
+  labs(x = "Year", y = "Annual Max Temperature") +  # No title added
+  theme_minimal()
+
+# Time series for precipitation
+
+df_avg_wind <- df_treated %>%
+  group_by(year) %>%
+  summarise(avg_tem = mean(pre, na.rm = TRUE))
+
+ggplot(df_avg_wind, aes(x = year, y = avg_tem)) +
+  geom_line(color = "darkslategray3", size = 1) +
+  geom_point(color = "coral", size = 2) +
+  geom_vline(xintercept = 2007, linetype = "dashed", color = "lightskyblue3", size = 1) +  # Vertical line at 2007
+  labs(x = "Year", y = "Annual Average Precipitation") +  # No title added
+  theme_minimal()
+
+# Production
+
+df_avg_wind <- df_treated %>%
+  group_by(year) %>%
+  summarise(avg_wind_speed = mean(production, na.rm = TRUE))
+
+ggplot(df_avg_wind, aes(x = year, y = avg_wind_speed)) +
+  geom_line(color = "plum3", size = 1) +
+  geom_point(color = "azure3", size = 2) +
+  geom_vline(xintercept = 2007, linetype = "dashed", color = "lightskyblue3", size = 1) +  # Vertical line at 2007
+  labs(x = "Year", y = "Annual Average Production") +  # No title added
+  theme_minimal()
+
+# Summary Table for all variables to explain the transformation
+
+df_key_vars <- df_treated %>%
+  select(pre, tem, wind, con_treat, production)
+
+summary(df_key_vars)
+
+# Histogram
+
+df_mo <- df_treated %>%
+  mutate(con_treat = ifelse(con_treat == 0, NA, con_treat))
+
+summary(log(df_model$production))
+
+summary(df_model$production)
+
+summary(df_model$pre_normalized)
+
+df_mo <- df_mo %>%
+  mutate(con_treat_log = log(con_treat))
+
+df_mo <- df_mo %>%
+  mutate(pre_normalized = scale(pre, center = TRUE, scale = TRUE),
+         tem_normalized = scale(tem, center = TRUE, scale = TRUE),
+         wind_normalized = scale(wind, center = TRUE, scale = TRUE))
+
+df_long <- df_mo %>%
+  select(pre_normalized, tem_normalized, wind_normalized, con_treat_log) %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value")
+
+ggplot(df_mo, aes(x = pre_normalized)) +
+  geom_histogram(binwidth = 0.5, fill = "darkslategray3", color = "black", alpha = 0.7) +
+  labs(x = "Normalized Precipitation", y = "Frequency") +
+  theme_minimal()
+
+ggplot(df_mo, aes(x = tem_normalized)) +
+  geom_histogram(binwidth = 0.5, fill = "darkslategray3", color = "black", alpha = 0.7) +
+  labs(x = "Normalized Temperature", y = "Frequency") +
+  theme_minimal()
+
+ggplot(df_mo, aes(x = wind_normalized)) +
+  geom_histogram(binwidth = 0.5, fill = "darkslategray3", color = "black", alpha = 0.7) +
+  labs(x = "Normalized Wind Speed", y = "Frequency") +
+  theme_minimal()
+
+ggplot(df_mo, aes(x = con_treat_log)) +
+  geom_histogram(binwidth = 0.5, fill = "mistyrose2", color = "black", alpha = 0.7) +
+  labs(x = "Log-Transformed Treatment", y = "Frequency") +
+  theme_minimal()
+
+```
+
+
+
+
+

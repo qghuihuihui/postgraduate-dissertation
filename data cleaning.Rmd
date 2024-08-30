@@ -1,0 +1,261 @@
+---
+title: "temp"
+author: "QGH"
+date: "2024-06-21"
+output: pdf_document
+---
+
+## agriculture production data
+## climate data
+## HDI data
+
+```{r agricultural data, include=FALSE}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(zoo)
+library(tidysynth)
+
+##
+# Cleaning
+##
+
+ag_data <- read.csv("Data/Agriculture/data/NepalAgriStats_Cereal.csv")
+
+pd_data <- ag_data %>%
+  select(1:2, starts_with("PD_P"))
+
+pd_p_cols <- grep("^PD_P", names(pd_data), value = TRUE)
+
+new_names <- sub("..$", "", pd_p_cols)
+
+rename_vector <- setNames(new_names, pd_p_cols)
+
+names(pd_data)[names(pd_data) %in% pd_p_cols] <- rename_vector[names(pd_data)[names(pd_data) %in% pd_p_cols]]
+
+##
+## Time series plot
+##
+
+df_long <- pd_data %>%
+  pivot_longer(
+    cols = starts_with("PD_P"),
+    names_to = "year",
+    names_prefix = "PD_P_",
+    values_to = "production"
+  )
+
+# Convert the year column to numeric
+
+df_long$year <- as.numeric(df_long$year)
+
+# Create the plot - for each district
+
+ggplot(df_long, aes(x = year, y = production, color = DISTRICT_NAME)) +
+  geom_line() +
+  labs(title = "Time Series Plot of Production",
+       x = "Year",
+       y = "Production",
+       color = "District") +
+  theme_minimal()
+
+# Plot - total
+
+df_summary <- df_long %>%
+  group_by(year) %>%
+  summarize(total_production = sum(production))
+
+```
+
+
+```{r rainfall}
+
+
+climate <- read.csv("Data/climate.csv")
+
+averages <- climate %>%
+  group_by(YEAR, DISTRICT, LAT,LON) %>%
+  summarize(PRECTOT_avg = mean(PRECTOT, na.rm = TRUE),
+            T2M_avg = max(T2M_MAX, na.rm = TRUE),
+            WS10M_avg = mean(WS10M, na.rm = TRUE),
+            .groups = 'drop') %>%
+  ungroup()
+
+```
+
+
+
+
+
+# Data Cleaning
+
+```{r did regression}
+
+# Missing climate data
+
+# Using the data collected from the closest weather station to fill the missing field.
+
+library(sf)
+library(dplyr)
+library(geosphere)
+
+districts_shp <- st_read("Data/Shapefile/local_unit.shp")
+
+# Mutate Shapefile
+
+merged_shp <- districts_shp %>%
+  mutate(DISTRICT = if_else(DISTRICT %in% c("NAWALPARASI_E", "NAWALPARASI_W"), "Nawalparasi", DISTRICT)) %>%
+  group_by(DISTRICT) %>%
+  summarise()
+
+merged_shp <- merged_shp %>%
+  mutate(DISTRICT = if_else(DISTRICT %in% c("RUKUM_E", "RUKUM_W"), "Rukum", DISTRICT)) %>%
+  group_by(DISTRICT) %>%
+  summarise()
+
+# Missing Data
+
+gdf_districts <- unique(merged_shp $DISTRICT)
+
+years <- unique(averages$YEAR)
+
+capitalize <- function(x) {
+  sapply(x, function(y) {
+    paste(toupper(substring(y, 1, 1)), tolower(substring(y, 2)), sep = "")
+  }, USE.NAMES = FALSE)
+}
+
+gdf_districts <- capitalize(gdf_districts)
+
+all_combinations <- expand.grid(YEAR = years, DISTRICT = gdf_districts)
+
+# Combining
+
+df_combined <- full_join(averages,all_combinations, by = c("YEAR", "DISTRICT"))
+
+df_combined <- df_combined %>%
+  mutate(across(everything(), ~ifelse(is.na(.), NA, .)))
+
+num_rows_with_na <- sum(!complete.cases(df_combined))
+
+# Further Clean
+
+df_1 <- subset(df_combined, DISTRICT != "Tanahu")
+
+df_1 <- subset(df_1, DISTRICT != "Bajhang")
+
+df_1 <- subset(df_1, DISTRICT != "Dhanusha")
+
+df_1 <- subset(df_1, DISTRICT != "Dolakha")
+
+df_1 <- subset(df_1, DISTRICT != "Kabhrepalanchok")
+
+df_1 <- subset(df_1, DISTRICT != "Makawanpur")
+
+df_1 <- subset(df_1, DISTRICT != "Panchthar")
+
+df_1 <- subset(df_1, DISTRICT != "Rautahat")
+
+# View
+
+n_distinct(df_1$DISTRICT)
+ 
+n_distinct(averages$DISTRICT)
+
+# Change back the name
+
+df_1$DISTRICT <- ifelse(df_1$DISTRICT == "Tanahun", "Tanahu", df_1$DISTRICT)
+
+df_1$DISTRICT <- ifelse(df_1$DISTRICT == "Bajang", "Bajhang", df_1$DISTRICT)
+
+df_1$DISTRICT <- ifelse(df_1$DISTRICT == "Dahanusa", "Dhanusha", df_1$DISTRICT)
+
+df_1$DISTRICT <- ifelse(df_1$DISTRICT == "Dolkha", "Dolakha", df_1$DISTRICT)
+
+df_1$DISTRICT <- ifelse(df_1$DISTRICT == "Kabhre", "Kabhrepalanchok", df_1$DISTRICT)
+
+df_1$DISTRICT <- ifelse(df_1$DISTRICT == "Makwanpur", "Makawanpur", df_1$DISTRICT)
+
+df_1$DISTRICT <- ifelse(df_1$DISTRICT == "Panchther", "Panchthar", df_1$DISTRICT)
+
+df_1$DISTRICT <- ifelse(df_1$DISTRICT == "Routahat", "Rautahat", df_1$DISTRICT)
+
+# Final Cleaning
+
+colnames(df_1) <- c("year","DISTRICT","lat","lon","pre","tem","wind")
+
+```
+
+# Filling missing data
+
+```{r did regression}
+
+# Centriod
+
+districts_sf <- merged_shp %>%
+  mutate(centroid = st_centroid(geometry)) %>%
+  st_as_sf()
+
+districts_sf <- districts_sf %>%
+  mutate(lat_centroid = st_coordinates(centroid)[, 2],
+         lon_centroid = st_coordinates(centroid)[, 1])
+
+districts_sf$DISTRICT <- capitalize(districts_sf$DISTRICT)
+
+df <- df_1 %>%
+  left_join(districts_sf %>% select(DISTRICT, lat_centroid, lon_centroid), by = "DISTRICT") %>%
+  mutate(
+    lat = ifelse(is.na(lat), lat_centroid, lat),
+    lon = ifelse(is.na(lon), lon_centroid, lon)
+  ) %>%
+  select(-lat_centroid, -lon_centroid)
+
+# Missing weather data
+
+find_closest_station <- function(lat, lon, weather_stations) {
+  distances <- distVincentySphere(matrix(c(lon, lat), ncol = 2), 
+                                  matrix(c(weather_stations$lon, weather_stations$lat), ncol = 2))
+  closest_index <- which.min(distances)
+  return(weather_stations[closest_index, ])
+}
+
+weather_stations <- df %>%
+  filter(!is.na(tem) & !is.na(pre) & !is.na(wind))
+
+df <- df %>%
+  rowwise() %>%
+  mutate(
+    closest_station = list(find_closest_station(lat, lon, weather_stations)),
+    tem = ifelse(is.na(tem), closest_station$tem, tem),
+    pre = ifelse(is.na(pre), closest_station$pre, pre), 
+    wind = ifelse(is.na(wind), closest_station$wind, wind)
+  ) %>%
+  ungroup() %>%
+  select(-closest_station)
+
+
+# Using Vincenty formula to calculate the shortest path. 
+
+```
+
+# Difference-in-differences - the 2007 flood
+
+# Synthetic Control for the 2008 flood
+
+```{r did regression}
+
+## Data Processing
+#
+
+colnames(df)
+
+df <- df[, -ncol(df)]
+
+write.csv(df, "df_did.csv", row.names = FALSE)
+
+write.csv(df_long, "df_long.csv", row.names = FALSE)
+
+```
+
+

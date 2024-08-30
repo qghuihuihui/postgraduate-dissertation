@@ -1,0 +1,358 @@
+---
+title: "did"
+author: "QGH"
+date: "2024-08-12"
+output: html_document
+---
+
+```{r hypothesis testing, include=FALSE}
+
+df_did <- read.csv("df_did.csv")
+
+df_long <- read.csv("df_long.csv")
+
+rows_with_zero <- df_long[df_long$production == 0, ]
+
+print(rows_with_zero)
+
+df_did$DISTRICT <- gsub("Chitawan", "Chitwan", df_did$DISTRICT)
+
+df_did$DISTRICT <- gsub("Kabhrepalanchok", "Kavre", df_did$DISTRICT)
+
+df_did$DISTRICT <- gsub("Makawanpur", "Makwanpur", df_did$DISTRICT)
+
+df_did$DISTRICT <- gsub("Terhathum", "Tehrathum", df_did$DISTRICT)
+
+# treated_units <- c("Kailali","Bardiya","Banke","Dang","Pyuthan","Gulmi","Arghakhanchi","Rupandehi","Nawalparasi","Chitawan","Parsa","Bara","Rautahat","Sarlahi","Mahottari","Dhanusa","Udayapur","Saptari","Siraha","Sankhuwasabha","Khotang","Panchthar","Jhapa","Morang","Sunsari","Kavre","Dolakha","Ramechhap","Syangja","Kaski","Dhading","Makwanpur","Baglung","Mustang","Parbat","Jajarkot","Mugu","Bajura","Kalikot","Sindhuli","Bhojpur","Rukum","Bajhang","Dadeldhura") 
+
+treated_units <- c("Dadeldhura","Kailali","Bardiya","Banke","Dang","Rupandehi","Nawalparasi","Parsa", "Bara","Saptari","Siraha","Sarlahi","Mahottari","Dhanusa","Udayapur","Sunsari","Jhapa","Morang","Bajhang", "Bajura","Kalikot","Jajarkot","Salyan","Baglung","Gulmi","Parbat","Syangja","Kaski","Dolakha","Ramechhap","Sankhuwasabha")
+
+
+#treated_units <-c("Darchula", "Baitadi", "Dadeldhura", "Achham", "Kailali", "Surkhet", "Bardiya", "Salyan", "Banke", "Dang", "Pyuthan", "Gulmi", "Arghakhanchi", "Rupandehi", "Nawalparasi", "Parsa", "Bara", "Rautahat", "Sarlahi", "Mahottari", "Sindhuli", "Dhanusa", "Udayapur", "Saptari", "Siraha", "Sankhuwasabha", "Khotang", "Bhojpur", "Panchthar", "Jhapa", "Morang", "Sunsari", "Dolakha", "Ramechhap", "Syangja", "Kaski", "Dhading", "Baglung", "Parbat", "Jajarkot", "Rukum", "Bajura", "Bajhang")
+
+
+merged_df <- merge(df_did, df_long, by.x = c("year", "DISTRICT"), by.y=c("year", "DISTRICT_NAME"))
+
+n_distinct(merged_df$DISTRICT)
+
+df_treated <- merged_df %>%
+  mutate(ever_treated = ifelse(DISTRICT %in% treated_units, 1, 0))
+
+# Adding treatment variable
+
+# 2006 is used instead of 2007 because production are recorded in 2006/2007, therefore, the selection of 2006 represents both fiscal year from mid-2006 to mid-2007.
+
+df_treated <- df_treated %>%
+  mutate(treatment = ifelse(year >= 2006 & DISTRICT %in% treated_units, 1, 0))
+
+
+
+summary(df_treated$production)
+
+# Exclude districts with production == 0
+
+# df_treated <- df_treated[!(df_treated$DISTRICT%in% c("Manang", "Mustang","Dolpa","Humla","Mugu","Jumla","Rasuwa","Kalikot","Solukhumbu","Bajhang","Bajura","Rukum","Jajarkot","Okhaldhunga")), ]
+
+
+df_treated <- df_treated[!(df_treated$DISTRICT%in% c("Humla", "Mugu","Dolpa", "Manang", "Mustang", "Rasuwa", "Kalikot", "Solukhumbu", 
+                           "Bajhang", "Darchula", "Sindhupalchok", 
+                           "Sankhuwasabha", "Taplejung","Dolakha")), ]
+
+# df_treated <- df_treated[!(df_treated$DISTRICT%in% c("Manang", "Mustang", "Dolpa", "Humla", "Mugu",  "Jumla", "Rasuwa", "Kalikot", "Solukhumbu",  "Bajhang", "Darchula", "Sindhupalchok", "Sankhuwasabha", "Taplejung","Dolakha")), ]
+
+
+## 75 district
+
+## Whether it is used to deal with selection bias.
+
+# Log the production
+
+df_treated$production_stand <- log(df_treated$production)
+
+mean(df_treated$production_stand)
+
+summary(df_treated$production)
+
+# Remove period before 1987
+
+df_treated <-df_treated %>% 
+  filter(year >= 1987)
+
+# Testing parallel trend
+
+group_period_averages <- aggregate(x = df_treated$production_stand, 
+                                 by = list(df_treated$year, df_treated$ever_treated), 
+                                 FUN = mean)
+
+names(group_period_averages) <- c("year", "treated", "gdvote")
+
+# Plot the parallel trend
+
+
+ggplot(group_period_averages, aes(x = year, y = gdvote)) +
+  
+  # Add points
+  geom_point(size = 3, color = "azure3") +
+  
+  # Add lines for each group
+  geom_line(aes(color = factor(treated)), size = 1.2) +
+  
+  # Add vertical line
+  geom_vline(xintercept = 2007, color = "mistyrose3", linetype = "dashed", size = 1) +
+  
+  # Labels and title
+  labs(x = "Year", y = "Log (Paddy Production)", title = "Parallel trends?", color = "Group") +
+  
+  # Customize the legend labels
+  scale_color_manual(values = c("1" = "coral", "0" = "lightskyblue3"),
+                     labels = c("1" = "Treatment", "0" = "Control")) +
+  
+  # Customize the theme
+  theme_minimal() +
+  
+  # Place the legend on the right side
+  theme(legend.position = "right")
+
+
+
+
+# Difference Plot
+
+group_diff <- aggregate(gdvote ~ year, data = group_period_averages, 
+                        FUN = function(x) diff(range(x)))
+
+names(group_diff) <- c("year", "diff")
+
+y_range <- c(0, 5)
+
+
+ggplot(group_diff, aes(x = year, y = diff)) +
+  
+  # Add both points and lines
+  geom_line(color = "darkseagreen", size = 1.2) +
+  geom_point(color = "azure3", size = 3) +
+  
+  # Set the y-axis range to match the previous plot
+  ylim(y_range) +
+  
+  # Add vertical line
+  geom_vline(xintercept = 2007, color = "mistyrose3", linetype = "dashed", size = 1) +
+  
+  # Labels and title
+  labs(x = "Year", y = "Difference in log(production)", 
+       title = "Difference in Production Between Treatment and Control Groups") +
+  
+  # Customize the theme
+  theme_minimal()
+
+```
+
+# The parallel assumption seems to be violated. 
+
+```{r did, include=FALSE}
+
+# Adjust precipitation by land area
+
+area <- read.csv("Data/area.csv")
+
+summary(df_model$pre_land)
+
+area_df <- area[, c("Districts", "Area.in.Sq..KM")]
+
+df_model <- merge(df_treated, area_df, by.x = "DISTRICT", by.y = "Districts")
+
+df_model$pre_land <- df_model$pre/df_model$Area.in.Sq..KM
+
+df_model$pro_land <- df_model$production/df_model$Area.in.Sq..KM
+
+# Adding continuous treatment variable
+
+df_model <- df_model %>%
+  mutate(con_treat = case_when(
+    treatment == 1 & DISTRICT == "Darchula" ~ 780,
+    treatment == 1 & DISTRICT == "Baitadi" ~ 1750,
+    treatment == 1 & DISTRICT == "Dadeldhura" ~ NA_real_,
+    treatment == 1 & DISTRICT == "Achham" ~ 247,
+    treatment == 1 & DISTRICT == "Kailali" ~ 41430,
+    treatment == 1 & DISTRICT == "Surkhet" ~ 378,
+    treatment == 1 & DISTRICT == "Bardiya" ~ 28970,
+    treatment == 1 & DISTRICT == "Salyan" ~ NA_real_,
+    treatment == 1 & DISTRICT == "Banke" ~ 44974,
+    treatment == 1 & DISTRICT == "Dang" ~ 900,
+    treatment == 1 & DISTRICT == "Pyuthan" ~ 165,
+    treatment == 1 & DISTRICT == "Gulmi" ~ 258,
+    treatment == 1 & DISTRICT == "Arghakhanchi" ~ 2971,
+    treatment == 1 & DISTRICT == "Rupandehi" ~ 8141,
+    treatment == 1 & DISTRICT == "Nawalparasi" ~ 7200,
+    treatment == 1 & DISTRICT == "Parsa" ~ 12268,
+    treatment == 1 & DISTRICT == "Bara" ~ 9873,
+    treatment == 1 & DISTRICT == "Rautahat" ~ 35795,
+    treatment == 1 & DISTRICT == "Sarlahi" ~ 51360,
+    treatment == 1 & DISTRICT == "Mahottari" ~ 59618,
+    treatment == 1 & DISTRICT == "Sindhuli" ~ NA_real_,
+    treatment == 1 & DISTRICT == "Dhanusa" ~ 126023,
+    treatment == 1 & DISTRICT == "Udayapur" ~ 1818,
+    treatment == 1 & DISTRICT == "Saptari" ~ 68388,
+    treatment == 1 & DISTRICT == "Siraha" ~ 57037,
+    treatment == 1 & DISTRICT == "Sankhuwasabha" ~ 170,
+    treatment == 1 & DISTRICT == "Khotang" ~ 144,
+    treatment == 1 & DISTRICT == "Bhojpur" ~ NA_real_,
+    treatment == 1 & DISTRICT == "Panchthar" ~ 1175,
+    treatment == 1 & DISTRICT == "Jhapa" ~ 1127,
+    treatment == 1 & DISTRICT == "Morang" ~ 4409,
+    treatment == 1 & DISTRICT == "Sunsari" ~ 11169,
+    treatment == 1 & DISTRICT == "Dolakha" ~ 42,
+    treatment == 1 & DISTRICT == "Ramechhap" ~ 250,
+    treatment == 1 & DISTRICT == "Syangja" ~ 162,
+    treatment == 1 & DISTRICT == "Kaski" ~ 30,
+    treatment == 1 & DISTRICT == "Dhading" ~ 481,
+    treatment == 1 & DISTRICT == "Baglung" ~ 440,
+    treatment == 1 & DISTRICT == "Parbat" ~ 364,
+    treatment == 1 & DISTRICT == "Jajarkot" ~ 42,
+    treatment == 1 & DISTRICT == "Rukum" ~ NA_real_,
+    treatment == 1 & DISTRICT == "Bajura" ~ 35,
+    treatment == 1 & DISTRICT == "Bajhang" ~ NA_real_,
+    TRUE ~ 0 # Default value if none of the conditions match
+  ))
+
+
+```
+
+
+```{r did, include=FALSE}
+
+##
+
+pop <- read.csv("Data/pop.csv")
+
+pop<-pop[pop$Category == "Population", ]
+
+summary(df_model$pro_land)
+
+# Simple interaction model
+
+df_model$tem_normalized <- scale(df_model$tem, center = TRUE, scale = TRUE)
+
+df_model$wind_normalized <- scale(df_model$wind, center = TRUE, scale = TRUE)
+
+df_model$pre_land_nor <- scale(df_model$pre_land, center = TRUE, scale = TRUE)
+
+df_model$pre_nor <- scale(df_model$pre, center = TRUE, scale = TRUE)
+
+df_model$pro_nor <- scale(df_model$pro_land, center = TRUE, scale = TRUE)
+
+df_model$post_treatment <- df_model$year >= 2007
+
+min_max_scale <- function(x) {
+  return((x - min(x)) / (max(x) - min(x)))
+}
+
+df_model$pro_max_min <- min_max_scale(df_model$production)
+
+interaction_mod <- lm(log(production)~ ever_treated * post_treatment + tem_normalized + wind_normalized , data = df_model)
+
+summary(interaction_mod)
+
+## Running Model with categorical treatment
+
+mod_1 <- lm( log(production) ~ as.factor(DISTRICT) + as.factor(year) + treatment  + wind_normalized+ tem_normalized , data  = df_model)
+
+summary(mod_1)
+
+summary(df_model$tem_normalized)
+
+## Running Model with continuous treatment
+
+df_model_con <- df_model[complete.cases(df_model), ]
+
+pop$District <- trimws(pop$District)
+
+df_model_con <- merge (pop, df_model_con, by.x = "District", by.y="DISTRICT", all = FALSE)
+
+df_model_con$conn <- df_model_con$con_treat/df_model_con$Value * 100
+
+mod_2<- lm( log(production) ~ as.factor(District) + as.factor(year) + conn+ wind_normalized+ tem_normalized ,
+                       data  =df_model_con)
+
+summary(mod_2)
+
+levels(df_model$DISTRICT)
+
+# Plot weights
+
+fitted_values <- predict(mod_2)
+
+ggplot(df_model_con, aes(x = log(con_treat + 1))) +  # Added +1 to avoid log(0)
+  geom_density(fill = "red", alpha = 0.5) +
+  labs(x = "Log(Treatment Intensity + 1)", y = "Density") +
+  theme_minimal()
+
+# Remove the long tail
+
+ggplot(df_model, aes(x = log(con_treat + 1))) + 
+  geom_density(fill = "red", alpha = 0.5) +
+  labs(x = "Log(Treatment Intensity + 1)", y = "Density") +
+  theme_minimal()
+
+summary(df_model$tem)
+
+## Map population
+
+df_2007 <- df_model_con %>%filter(year == 2007)
+
+top_5_df <- df_2007 %>%
+  arrange(desc(conn)) %>%
+  head(5)
+
+ggplot(top_5_df, aes(x = reorder(District, con_treat), y = con_treat)) +
+  geom_bar(stat = "identity", fill = "lightskyblue3") +          
+  coord_flip() +                                            
+  geom_text(aes(label = con_treat), hjust = 1.5, color = "white") + 
+  labs(x = "Value", y = "Districts", title = "Top 5 Districts by Value") + 
+  scale_y_continuous(labels = scales::comma) +               
+  theme_minimal()      
+
+## Map adjusted
+
+ggplot(top_5_df, aes(x = reorder(District, conn), y = conn)) +
+  geom_bar(stat = "identity", fill = "mistyrose3") +          # Create the bars
+  coord_flip() +                                                 # Flip the chart to make it horizontal
+  geom_text(aes(label = sprintf("%.2f", conn)), hjust = 1.5, color = "white") + # Format conn to two decimals in the labels
+  labs(x = "Value", y = "Districts", title = "Top 5 Districts by Value") +      # Customize axis labels and title
+  scale_y_continuous(labels = scales::comma) +                   # Format y-axis numbers with commas
+  theme_minimal()     
+
+```
+
+
+```{r t test}
+
+pre_treatment_data <- df_model[df_model$year < 2007, ]
+
+pre_treatment_data$ever_treated <- as.factor(pre_treatment_data$ever_treated)
+
+t.test(production ~ ever_treated, data = pre_treatment_data, var.equal = TRUE)
+
+```
+
+```{r did, include=FALSE}
+
+selected_districts <- df_model %>%
+  filter(ever_treated == 1) %>%
+  sample_n(6) %>%
+  pull(DISTRICT)
+
+df_filtered <- df_model %>%
+  filter(DISTRICT %in% selected_districts)
+
+ggplot(df_filtered, aes(x = year, y = log(production), color = DISTRICT)) +
+  geom_line() +
+  labs(title = "Log of Production Over Time for Selected Districts",
+       x = "Year",
+       y = "Log(Production)") +
+  theme_minimal()
+
+```
+
+
+
